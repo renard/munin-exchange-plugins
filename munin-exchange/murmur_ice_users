@@ -1,0 +1,185 @@
+#!/usr/bin/php
+<?php
+/*
+: << =cut
+
+=head1 NAME
+
+murmur_ice_users
+
+=head1 DESCRIPTION
+
+This plugin monitors users on a Mumble server (a.k.a. murmur).
+It uses PHP and ICE to to query murmur. On debian, you can install mumble-server-web
+to get the dependencies installed and set up.
+
+
+=head1 CONFIGURATION
+
+You can specify a different ip:port in the munin-node config file as follow:
+
+    [murmur_ice_users]
+    env.host 127.0.0.1
+    env.port 6502
+
+
+=head1 AUTHOR
+
+Thomas Léveil
+
+=head1 LICENSE
+
+Permission to use, copy, and modify this software with or without fee
+is hereby granted, provided that this entire notice is included in
+all source code copies of any software which is or includes a copy or
+modification of this software.
+
+THIS SOFTWARE IS BEING PROVIDED "AS IS", WITHOUT ANY EXPRESS OR
+IMPLIED WARRANTY. IN PARTICULAR, NONE OF THE AUTHORS MAKES ANY
+REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE
+MERCHANTABILITY OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR
+PURPOSE.
+
+=head1 CONTRIBUTE
+
+find this plugin on github at http://github.com/VolatileMesh/munin-plugins
+
+=head1 MAGIC MARKERS
+
+ #%# family=contrib
+ #%# capabilities=autoconf
+
+=head1 VERSION
+
+    1.1
+
+=head1 CHANGELOG
+
+=head2 1.0 - 2009/05/04
+
+initial release
+
+=head2 1.1 - 2011/01/13
+
+fix to make it work with murmur v1.2.2
+
+    
+=cut
+*/
+
+
+$host = "127.0.0.1";
+$port = "6502";
+
+if (isset($_ENV['host'])) $host = $_ENV['host'];
+if (isset($_ENV['port'])) $port = $_ENV['port'];
+
+if (count($argv)==1) {
+    do_count();
+} 
+
+switch ($argv[1]) 
+{
+	case 'autoconf':
+		do_autoconf();
+	break;
+	
+	case 'config':
+		do_config();
+	break;
+	
+	default:
+		do_count();
+	break;
+}
+exit(1);
+
+
+function do_autoconf()
+{
+	global $ICE, $host, $port;
+	try
+	{
+		Ice_loadProfile();
+		$iceproxy = $ICE->stringToProxy("Meta:tcp -h $host -p $port");
+		$metaServer = $iceproxy->ice_checkedCast("::Murmur::Meta");
+		fwrite(STDOUT, "yes\n");
+		exit(0);
+	}
+	catch (Exception $e)
+	{
+		fwrite(STDOUT, "no\n");
+		exit(1);
+	}
+}
+
+function do_config()
+{
+	fwrite(STDOUT, "graph_title Mumble Users\n");
+	fwrite(STDOUT, "graph_vlabel Connected Users\n");
+	fwrite(STDOUT, "graph_category VoIP\n");
+	fwrite(STDOUT, "graph_info This graph shows the number of connected users on a murmur server\n");
+	fwrite(STDOUT, "maxusers.label Maximum number of users allowed\n");
+	fwrite(STDOUT, "maxusers.type GAUGE\n");
+	fwrite(STDOUT, "online.label connected users\n");
+	fwrite(STDOUT, "online.type GAUGE\n");
+	exit(0);
+}
+
+function do_count()
+{
+	global $ICE, $host, $port;
+	
+	$totalMaxUsers="U";
+	$totalConnectedUsers="U";
+
+	try 
+	{
+		Ice_loadProfile();
+		$iceproxy = $ICE->stringToProxy("Meta:tcp -h $host -p $port");
+		$metaServer = $iceproxy->ice_checkedCast("::Murmur::Meta");
+		$AdefaultConf = $metaServer->getDefaultConf();
+		
+		$AvirtualServer = $metaServer->getBootedServers();
+		
+		$totalMaxUsers = 0;
+		foreach ($AvirtualServer as $numserver=>$s) 
+		{
+			$maxusers = $s->getConf('users');
+			if (!$maxusers) $maxusers = $AdefaultConf['users'];
+			$totalMaxUsers += intval($maxusers);
+            
+            $tree = $s->getTree();
+            //print_r($tree);
+			$connectedUsers = countConnectedUsers($s->getTree());			
+			$totalConnectedUsers += $connectedUsers;
+		}
+		
+
+		fwrite(STDOUT,  "maxusers.value ".$totalMaxUsers."\n");
+		fwrite(STDOUT,  "online.value ".$totalConnectedUsers."\n");
+		exit(0);
+	}
+	catch (Exception $e)
+	{
+		fwrite(STDERR, $e."\n");
+		exit(1);
+	}
+}
+
+function countConnectedUsers($channelTree) 
+{
+	$count = intval(count($channelTree->users));
+	
+	if (isset($channelTree->children))
+	{
+		foreach ($channelTree->children as $c)
+		{
+			$count += countConnectedUsers($c);
+		}
+	}
+	
+	return $count;
+}
+
+?>
