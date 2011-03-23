@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# http://exchange.munin-monitoring.org/docs/api/
+
+PLUGINS_LIST_URL='http://exchange.munin-monitoring.org/api/1.0/plugins/?limit=1000'
+PLUGINS_DIR=munin-exchange
+
+test -d ${PLUGINS_DIR} && mv ${PLUGINS_DIR} ${PLUGINS_DIR}.old
+mkdir ${PLUGINS_DIR}
+
+plugins=$(lynx -dump ${PLUGINS_LIST_URL} | \
+    sed -n 's,.*"download_url": "\([^"]\+\)".*,\1,p' | sort -g)
+for p in ${plugins}; do
+    n=$(echo "${p}" | sed 's,/plugins/\([^/]\+\)/.*,\1,')
+    echo $n
+    wget -q -N http://exchange.munin-monitoring.org/${p} -O munin-exchange/${n}
+done
